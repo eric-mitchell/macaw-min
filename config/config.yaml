@@ -1,0 +1,15 @@
+outer_policy_lr: 1e-4
+outer_value_lr: 1e-4
+inner_policy_lr: 1e-2
+inner_value_lr: 1e-2
+inner_buffer_size: -1
+outer_buffer_size: -1
+weight_transform: True
+task_config: task_config/cheetah_dir.json
+advantage_head_coef: 1e-3
+net_width: 128
+net_depth: 3
+device: cuda
+outer_batch_size: 256
+inner_batch_size: 256
+rollout_interval: 100
