@@ -1,21 +1,23 @@
 from nn import MLP
 from envs import HalfCheetahDirEnv
 from utils import ReplayBuffer
-import torch.optim as O
-import torch.distributions as D
 import hydra
 from hydra.utils import get_original_cwd
 import json
 from collections import namedtuple
 import pickle
 import torch
+import torch.optim as O
 from typing import List
 import higher
 from itertools import count
-
+import logging
 
 from utils import Experience
 from losses import policy_loss_on_batch, vf_loss_on_batch
+
+
+LOG = logging.getLogger(__name__)
 
 
 def rollout_policy(policy: MLP, env, render: bool = False) -> List[Experience]:
@@ -31,11 +33,7 @@ def rollout_policy(policy: MLP, env, render: bool = False) -> List[Experience]:
     current_device = list(policy.parameters())[-1].device
     while not done:
         with torch.no_grad():
-            action_sigma = 0.2
             action = policy(torch.tensor(state).to(current_device).float()).squeeze()
-
-            action_dist = D.Normal(action, torch.empty_like(action).fill_(action_sigma))
-            log_prob = action_dist.log_prob(action).to("cpu").numpy().sum()
 
             np_action = action.squeeze().cpu().numpy()
             np_action = np_action.clip(min=env.action_space.low, max=env.action_space.high)
@@ -134,6 +132,9 @@ def run(args):
     policy_opt, vf_opt, policy_lrs, vf_lrs = get_opts_and_lrs(args, policy, vf)
 
     for train_step_idx in count(start=1):
+        if train_step_idx % args.rollout_interval == 0:
+            LOG.info(f"Train step {train_step_idx}")
+
         for i, (train_task_idx, task_buffer) in enumerate(
             zip(task_config.train_tasks, task_buffers)
         ):
@@ -178,11 +179,16 @@ def run(args):
 
                 (meta_policy_loss / len(task_config.train_tasks)).backward()
 
-                # Sample adapted policy trajectory, add to replay buffer i [L12]
+                # Sample adapted policy trajectory
                 if train_step_idx % args.rollout_interval == 0:
-                    adapted_trajectory, adapted_reward, success = rollout_policy(
-                        f_policy, env
-                    )
+                    adapted_trajectory, adapted_reward, success = rollout_policy(f_policy, env)
+                    LOG.info(f"Task {train_task_idx} reward: {adapted_reward}")
+
+        # Update the policy/value function
+        policy_opt.step()
+        policy_opt.zero_grad()
+        vf_opt.step()
+        vf_opt.zero_grad()
 
 
 if __name__ == "__main__":
